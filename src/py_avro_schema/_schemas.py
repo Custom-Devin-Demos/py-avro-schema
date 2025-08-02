@@ -993,16 +993,20 @@ class PydanticSchema(RecordSchema):
         return {key: _schema_obj(self._annotation(key)).make_default(value) for key, value in py_default}
 
     def _annotation(self, field_name: str) -> Type:
-        """
-        Fetch the raw annotation for a given field name
-
-        Pydantic "unpacks" annotated and forward ref types in their FieldInfo API. We need to access to full, raw
-        annotated type hints instead.
-        """
+        """Fetch the annotation for a given field name, resolving string annotations"""
         for class_ in self.py_type.mro():
-            if class_.__annotations__.get(field_name):
-                return class_.__annotations__[field_name]
-        raise ValueError(f"{field_name} is not a field of {self.py_type}")  # Should never happen
+            raw_annotation = class_.__annotations__.get(field_name)
+            if raw_annotation:
+                if isinstance(raw_annotation, str):
+                    try:
+                        hints = get_type_hints(class_)
+                        if field_name in hints:
+                            return hints[field_name]
+                    except (NameError, TypeError):
+                        pass
+                # Return the raw annotation (could be resolved or original)
+                return raw_annotation
+        raise ValueError(f"{field_name} is not a field of {self.py_type}")
 
 
 class PlainClassSchema(RecordSchema):
