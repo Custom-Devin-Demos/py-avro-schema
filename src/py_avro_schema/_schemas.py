@@ -489,6 +489,74 @@ class ForwardSchema(Schema):
     def data(self, names: NamesType) -> JSONStr:
         """Return the schema data"""
         if isinstance(self.py_type, str):
+            basic_type_mappings = {
+                "str": "string",
+                "int": "long",
+                "float": "double",
+                "bool": "boolean",
+                "bytes": "bytes",
+                "NoneType": "null",
+            }
+            if self.py_type in basic_type_mappings:
+                return basic_type_mappings[self.py_type]
+
+            # Handle common typing patterns for string annotations
+            annotation = self.py_type.strip()
+
+            if (annotation.startswith('"') and annotation.endswith('"')) or (
+                annotation.startswith("'") and annotation.endswith("'")
+            ):
+                annotation = annotation[1:-1]
+                if (annotation.startswith('"') and annotation.endswith('"')) or (
+                    annotation.startswith("'") and annotation.endswith("'")
+                ):
+                    annotation = annotation[1:-1]
+
+            if annotation.startswith("Annotated["):
+                # Find the first comma to extract the base type
+                bracket_count = 0
+                comma_pos = -1
+                for i, char in enumerate(annotation[10:], 10):
+                    if char == "[":
+                        bracket_count += 1
+                    elif char == "]":
+                        bracket_count -= 1
+                    elif char == "," and bracket_count == 0:
+                        comma_pos = i
+                        break
+
+                if comma_pos > 0:
+                    inner_type = annotation[10:comma_pos].strip()
+                    if inner_type in basic_type_mappings:
+                        return basic_type_mappings[inner_type]
+                    else:
+                        return inner_type
+
+            if annotation.startswith("Optional[") and annotation.endswith("]"):
+                inner_type = annotation[9:-1].strip()
+                if inner_type in basic_type_mappings:
+                    return ["null", basic_type_mappings[inner_type]]
+                else:
+                    return ["null", inner_type]
+
+            if annotation.startswith("List[") and annotation.endswith("]"):
+                inner_type = annotation[5:-1].strip()
+                if inner_type in basic_type_mappings:
+                    return {"type": "array", "items": basic_type_mappings[inner_type]}
+                else:
+                    return {"type": "array", "items": inner_type}
+
+            if annotation.startswith("Union[") and annotation.endswith("]"):
+                inner_types = annotation[6:-1].strip()
+                type_parts = [t.strip() for t in inner_types.split(",")]
+                resolved_types = []
+                for type_part in type_parts:
+                    if type_part in basic_type_mappings:
+                        resolved_types.append(basic_type_mappings[type_part])
+                    else:
+                        resolved_types.append(type_part)
+                return resolved_types
+
             return self.py_type  # In Python you can forward ref using a string literal
         else:
             assert isinstance(self.py_type, ForwardRef)
